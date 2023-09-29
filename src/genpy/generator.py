@@ -858,7 +858,8 @@ def msg_generator(msg_context, spec, search_path):
     # Order fields so that optionals come last
     fields_optional = []
     fields_required = []
-    for spec_name, _, _ in fields:
+    for field in fields:
+        field = spec_name, _, _
         # TODO refactor code to use "_is_XXX" instead of "_is" (This pattern is better since in python we treat _is_XX vars as private)
         if spec_name[:4] == 'is_':
             continue
