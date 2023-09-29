@@ -924,7 +924,7 @@ def msg_generator(msg_context, spec, search_path):
     super({name}, self).__init__(**{fields_dict})"""
     for field in fields_required:
         spec_name, spec_type, format_spec_type_hint = field
-        yield INDENT*3 + f'self.{spec_name} = {spec_name}'
+        yield INDENT*2 + f'self.{spec_name} = {spec_name}'
     for field in fields_optional:
         spec_name, spec_type, format_spec_type_hint = field
         yield f'    if self.{spec_name} is None:' 
