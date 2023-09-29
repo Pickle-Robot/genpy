@@ -867,7 +867,7 @@ def msg_generator(msg_context, spec, search_path):
             fields_optional.append(field)
         else:
             fields_required.append(field)
-    fields = fields_optional + fields_required
+    fields = fields_required + fields_optional
 
     # Pass fields as keyword args to super class. 
     fields_dict = '{' + ', '.join([f"'{spec_name}': {spec_name}" for spec_name in spec_names]) + '}'
