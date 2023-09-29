@@ -858,7 +858,7 @@ def msg_generator(msg_context, spec, search_path):
     # Order fields so that optionals come last
     fields_optional = []
     fields_required = []
-    for spec_name, _, _ in feilds:
+    for spec_name, _, _ in fields:
         # TODO refactor code to use "_is_XXX" instead of "_is" (This pattern is better since in python we treat _is_XX vars as private)
         if spec_name[:4] == 'is_':
             continue
@@ -868,7 +868,7 @@ def msg_generator(msg_context, spec, search_path):
             fields_required.append(field)
     fields = fields_optional + fields_required
 
-    # Pass feilds as keyword args to super class. 
+    # Pass fields as keyword args to super class. 
     fields_dict = '{' + ', '.join([f"'{spec_name}': {spec_name}" for spec_name in spec_names]) + '}'
     def get_format_spec_type_hint(spec_name, format_spec_type_hint):
         if f'is_{spec_name}' in spec_names:
