@@ -855,12 +855,24 @@ def msg_generator(msg_context, spec, search_path):
     yield '  _full_text: str = """%s"""' % full_text
 
     fields = generate_fields(spec_names, spec.types)
+    # Order fields so that optionals come last
+    fields_optional = []
+    fields_required = []
+    for spec_name, _, _ in feilds:
+        # TODO refactor code to use "_is_XXX" instead of "_is" (This pattern is better since in python we treat _is_XX vars as private)
+        if spec_name[:4] == 'is_':
+            continue
+        elif f'is_{spec_name}' in spec_names:
+            fields_optional.append(field)
+        else:
+            fields_required.append(field)
+    fields = fields_optional + fields_required
+
     # Pass feilds as keyword args to super class. 
     fields_dict = '{' + ', '.join([f"'{spec_name}': {spec_name}" for spec_name in spec_names]) + '}'
-
     def get_format_spec_type_hint(spec_name, format_spec_type_hint):
         if f'is_{spec_name}' in spec_names:
-            return f'Optional[{format_spec_type_hint}]'
+            return f'Optional[{format_spec_type_hint}] = None'
         else:
             return format_spec_type_hint
             
@@ -893,7 +905,7 @@ def msg_generator(msg_context, spec, search_path):
 
     yield f"""
   def __init__(self, {f',{NEWLINE}{INDENT}{INDENT}'.join(
-    [f'{spec_name}: {get_format_spec_type_hint(spec_name, format_spec_type_hint)} = None' 
+    [f'{spec_name}: {get_format_spec_type_hint(spec_name, format_spec_type_hint)}' 
                     for spec_name, _, format_spec_type_hint in fields])}):
     \"\"\"
     Constructor. Any message fields that are implicitly/explicitly
@@ -909,12 +921,17 @@ def msg_generator(msg_context, spec, search_path):
     to set specific fields.
     \"\"\"
     super({name}, self).__init__(**{fields_dict})"""
-    for field in fields:
+    for field in fields_required:
+        spec_name, spec_type, format_spec_type_hint = field
+        yield INDENT*3 + 'self.%s = %s' % (spec_name, format_spec_type_hint, spec_name)
+    for field in fields_optional:
         spec_name, spec_type, format_spec_type_hint = field
         yield '    if self.%s is None:' % spec_name
-        yield INDENT*3 + 'self.%s: %s = %s' % (spec_name, format_spec_type_hint, default_value(msg_context, spec_type, spec.package))
+        yield INDENT*3 + 'self.%s = %s' % (spec_name, format_spec_type_hint, default_value(msg_context, spec_type, spec.package))
+        yield INDENT*3 + 'self.is_%s = False' % (spec_name, _, spec_name)
         yield '    else:'
-        yield INDENT*3 + 'self.%s: %s = %s' % (spec_name, format_spec_type_hint, spec_name)
+        yield INDENT*3 + 'self.%s = %s' % (spec_name, format_spec_type_hint, spec_name)
+        yield INDENT*3 + 'self.is_%s = True' % (spec_name, format_spec_type_hint, spec_name)
     yield """
   def _get_types(self):
     \"\"\"
