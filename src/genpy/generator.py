@@ -924,15 +924,15 @@ def msg_generator(msg_context, spec, search_path):
     super({name}, self).__init__(**{fields_dict})"""
     for field in fields_required:
         spec_name, spec_type, format_spec_type_hint = field
-        yield INDENT*3 + 'self.%s = %s' % (spec_name, format_spec_type_hint, spec_name)
+        yield INDENT*3 + f'self.{spec_name} = {spec_name}'
     for field in fields_optional:
         spec_name, spec_type, format_spec_type_hint = field
-        yield '    if self.%s is None:' % spec_name
-        yield INDENT*3 + 'self.%s = %s' % (spec_name, format_spec_type_hint, default_value(msg_context, spec_type, spec.package))
-        yield INDENT*3 + 'self.is_%s = False' % (spec_name, _, spec_name)
+        yield f'    if self.{spec_name} is None:' 
+        yield INDENT*3 + f'self.{spec_name} = {default_value(msg_context, spec_type, spec.package)}'
+        yield INDENT*3 + f'self.is_{spec_name} = False'
         yield '    else:'
-        yield INDENT*3 + 'self.%s = %s' % (spec_name, format_spec_type_hint, spec_name)
-        yield INDENT*3 + 'self.is_%s = True' % (spec_name, format_spec_type_hint, spec_name)
+        yield INDENT*3 + f'self.{spec_name} = {spec_name}'
+        yield INDENT*3 + f'self.is_{spec_name} = True'
     yield """
   def _get_types(self):
     \"\"\"
