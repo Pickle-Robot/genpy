@@ -861,7 +861,7 @@ def msg_generator(msg_context, spec, search_path):
     for field in fields:
         spec_name, _, _ = field
         # TODO refactor code to use "_is_XXX" instead of "_is" (This pattern is better since in python we treat _is_XX vars as private)
-        if spec_name[:4] == 'is_':
+        if spec_name[:3] == 'is_':
             continue
         elif f'is_{spec_name}' in spec_names:
             fields_optional.append(field)
