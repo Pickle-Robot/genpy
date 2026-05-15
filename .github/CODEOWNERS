@@ -1,0 +1,8 @@
+# CODEOWNERS
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Format: <pattern>  <owner> [<owner> ...]
+# Last matching rule wins (except the global * which applies when no other rule matches).
+
+# Default owners for everything in the repo
+* @Pickle-Robot/platform
