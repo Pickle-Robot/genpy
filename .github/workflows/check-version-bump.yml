@@ -1,0 +1,42 @@
+name: Check Version Bump
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  check-version-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Auth for Artifact Registry Access
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ vars.GCP_GITHUB_OIDC_PROVIDER }}
+          service_account: ${{ vars.ARTIFACT_WRITER_SA }}
+
+      - name: Check version not already published
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          VERSION=$(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
+          PKG_NAME=$(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['name'])")
+          PKG_SLUG="${PKG_NAME//_/-}"
+          echo "Checking if ${PKG_NAME}==${VERSION} is already published..."
+          RESPONSE=$(curl -sf \
+            -u "oauth2accesstoken:${ACCESS_TOKEN}" \
+            "https://us-central1-python.pkg.dev/pickle-devops-prod/python-internal/simple/${PKG_SLUG}/" \
+            2>/dev/null || echo "")
+          if echo "$RESPONSE" | grep -qi "${PKG_SLUG}-${VERSION}"; then
+            echo "ERROR: ${PKG_NAME}==${VERSION} is already published in Artifact Registry."
+            echo "Please bump the version in pyproject.toml before merging."
+            exit 1
+          fi
+          echo "${PKG_NAME}==${VERSION} is not yet published — version bump looks good."
