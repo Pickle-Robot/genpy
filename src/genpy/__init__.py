@@ -1,3 +1,5 @@
+__version__ = "0.6.16"
+
 # Software License Agreement (BSD License)
 #
 # Copyright (c) 2011, Willow Garage, Inc.
