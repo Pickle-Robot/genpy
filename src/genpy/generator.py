@@ -476,10 +476,14 @@ def string_serializer_generator(package, type_, name, serialize):  # noqa: D401
                 yield 'if type(%s) in [list, tuple]:' % var
                 yield INDENT+pack2("'<I%sB'%length", 'length, *%s' % var)
                 yield 'else:'
-                # When the payload is already bytes, write the length prefix and
-                # the payload separately so the (potentially large) payload goes
-                # straight to the buffer. Packing it via struct would first copy
-                # the whole payload into a temporary 4+length buffer.
+                # Write the length prefix and the payload separately so the
+                # (potentially large) payload goes straight to the buffer.
+                # Packing it via struct would first copy the whole payload into
+                # a temporary 4+length buffer. Using memoryview(...).nbytes for
+                # the length lets any C-contiguous buffer (bytes, bytearray, or
+                # a numpy array) be written directly without a .tobytes() copy;
+                # for bytes it is identical to len().
+                yield INDENT+'length = memoryview(%s).nbytes' % var
                 yield INDENT+int32_pack('length')
                 yield INDENT+'buff.write(%s)' % var
             else:
