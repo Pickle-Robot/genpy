@@ -476,7 +476,12 @@ def string_serializer_generator(package, type_, name, serialize):  # noqa: D401
                 yield 'if type(%s) in [list, tuple]:' % var
                 yield INDENT+pack2("'<I%sB'%length", 'length, *%s' % var)
                 yield 'else:'
-                yield INDENT+pack2("'<I%ss'%length", 'length, %s' % var)
+                # When the payload is already bytes, write the length prefix and
+                # the payload separately so the (potentially large) payload goes
+                # straight to the buffer. Packing it via struct would first copy
+                # the whole payload into a temporary 4+length buffer.
+                yield INDENT+int32_pack('length')
+                yield INDENT+'buff.write(%s)' % var
             else:
                 yield 'if type(%s) in [list, tuple]:' % var
                 yield INDENT+pack('%sB' % array_len, '*%s' % var)
