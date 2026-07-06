@@ -954,6 +954,8 @@ def msg_generator(msg_context, spec, search_path):
     for y in serialize_fn_generator(msg_context, spec):
         yield '    ' + y
     yield """
+  _SUPPORTS_LOANED_DESERIALIZE = True
+
   def deserialize(self, bytes_: bytes, loaned: bool = False) -> \'%s\':
     \"\"\"
     unpack serialized message in str into this message instance
