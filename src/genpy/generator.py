@@ -496,9 +496,6 @@ def string_serializer_generator(package, type_, name, serialize):  # noqa: D401
         if array_len is not None:
             yield 'end += %s' % array_len
             if base_type in ['uint8', 'char']:
-                # `loaned` is a runtime parameter of deserialize(): when set, the
-                # byte-array payload is borrowed as a zero-copy memoryview of the
-                # input buffer instead of being copied out with bytes_[start:end].
                 yield 'if loaned:'
                 yield INDENT + '%s = memoryview(bytes_)[start:end]' % var
                 yield 'else:'
