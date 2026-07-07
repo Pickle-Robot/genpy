@@ -3,4 +3,6 @@ length = len(data)
 if type(data) in [list, tuple]:
   buff.write(struct.Struct('<I%sB'%length).pack(length, *data))
 else:
-  buff.write(struct.Struct('<I%ss'%length).pack(length, data))
+  length = memoryview(data).nbytes
+  buff.write(_struct_I.pack(length))
+  buff.write(data)

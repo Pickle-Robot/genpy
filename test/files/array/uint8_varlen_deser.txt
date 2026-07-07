@@ -3,4 +3,7 @@ end += 4
 (length,) = _struct_I.unpack(bytes_[start:end])
 start = end
 end += length
-data = bytes_[start:end]
+if loaned:
+  data = memoryview(bytes_)[start:end]
+else:
+  data = bytes_[start:end]
