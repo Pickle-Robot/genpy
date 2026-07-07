@@ -505,8 +505,6 @@ def string_serializer_generator(package, type_, name, serialize):  # noqa: D401
         else:
             yield 'end += length'
             if base_type in ['uint8', 'char']:
-                # See the fixed-length branch above: `loaned` selects a zero-copy
-                # memoryview view over the input buffer at runtime.
                 yield 'if loaned:'
                 yield INDENT + '%s = memoryview(bytes_)[start:end]' % var
                 yield 'else:'
