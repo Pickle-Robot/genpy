@@ -2,4 +2,4 @@
 if type(data) in [list, tuple]:
   buff.write(_get_struct_8B().pack(*data))
 else:
-  buff.write(_get_struct_8s().pack(data))
+  buff.write(data)

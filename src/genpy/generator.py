@@ -483,7 +483,7 @@ def string_serializer_generator(package, type_, name, serialize):  # noqa: D401
                 yield 'if type(%s) in [list, tuple]:' % var
                 yield INDENT+pack('%sB' % array_len, '*%s' % var)
                 yield 'else:'
-                yield INDENT+pack('%ss' % array_len, var)
+                yield INDENT+'buff.write(%s)' % var
         else:
             # FIXME: for py3k, this needs to be w/ encode(), but this interferes with actual byte data
             yield 'if python3 or type(%s) == unicode:' % (var)
