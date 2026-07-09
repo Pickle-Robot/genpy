@@ -3,5 +3,5 @@ for i in range(0, 3):
   val0 = foo_msg_Object()
   start = end
   end += 4
-  (val0.data,) = _get_struct_i().unpack(str[start:end])
+  (val0.data,) = _get_struct_i().unpack(bytes_[start:end])
   data.append(val0)

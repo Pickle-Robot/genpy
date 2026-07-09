@@ -52,7 +52,7 @@ def test_Simple():
     val = genpy.generator.get_special('time').import_str
     assert 'import genpy' == val, val
     assert 'import genpy' == genpy.generator.get_special('duration').import_str
-    assert 'import std_msgs.msg' == genpy.generator.get_special('Header').import_str
+    assert 'from std_msgs.msg._Header import Header as std_msgs_msg_Header' == genpy.generator.get_special('Header').import_str
 
     assert 'genpy.Time()' == genpy.generator.get_special('time').constructor
     assert 'genpy.Duration()' == genpy.generator.get_special('duration').constructor
@@ -237,20 +237,20 @@ def test_compute_import():
     #  'from ci2_msgs.msg._Base2 import Base2 as ci2_msgs_msg_Base2',
     #  'from ci_msgs.msg._Base import Base as ci_msgs_msg_Base',
     # 'from ci3_msgs.msg._Base3 import Base3 as ci3_msgs_msg_Base3']
-    assert {'import ci4_msgs.msg',
-            'import ci3_msgs.msg',
-            'import ci2_msgs.msg', 
-            'import ci_msgs.msg'} == set(genpy.generator.compute_import(msg_context, 'foo', 'ci4_msgs/Base4'))
-    assert {'import ci4_msgs.msg',
-            'import ci3_msgs.msg',
-            'import ci2_msgs.msg',
-            'import ci_msgs.msg'} == set(genpy.generator.compute_import(msg_context, 'ci4_msgs', 'ci4_msgs/Base4'))
+    assert {'from ci4_msgs.msg._Base4 import Base4 as ci4_msgs_msg_Base4',
+            'from ci3_msgs.msg._Base3 import Base3 as ci3_msgs_msg_Base3',
+            'from ci2_msgs.msg._Base2 import Base2 as ci2_msgs_msg_Base2',
+            'from ci_msgs.msg._Base import Base as ci_msgs_msg_Base'} == set(genpy.generator.compute_import(msg_context, 'foo', 'ci4_msgs/Base4'))
+    assert {'from ci4_msgs.msg._Base4 import Base4 as ci4_msgs_msg_Base4',
+            'from ci3_msgs.msg._Base3 import Base3 as ci3_msgs_msg_Base3',
+            'from ci2_msgs.msg._Base2 import Base2 as ci2_msgs_msg_Base2',
+            'from ci_msgs.msg._Base import Base as ci_msgs_msg_Base'} == set(genpy.generator.compute_import(msg_context, 'ci4_msgs', 'ci4_msgs/Base4'))
 
-    assert ['import ci4_msgs.msg'] == genpy.generator.compute_import(msg_context, 'foo', 'ci4_msgs/Base')
-    assert ['import ci4_msgs.msg'] == genpy.generator.compute_import(msg_context, 'ci4_msgs', 'ci4_msgs/Base')
-    assert ['import ci4_msgs.msg'] == genpy.generator.compute_import(msg_context, 'ci4_msgs', 'Base')
+    assert ['from ci4_msgs.msg._Base import Base as ci4_msgs_msg_Base'] == genpy.generator.compute_import(msg_context, 'foo', 'ci4_msgs/Base')
+    assert ['from ci4_msgs.msg._Base import Base as ci4_msgs_msg_Base'] == genpy.generator.compute_import(msg_context, 'ci4_msgs', 'ci4_msgs/Base')
+    assert ['from ci4_msgs.msg._Base import Base as ci4_msgs_msg_Base'] == genpy.generator.compute_import(msg_context, 'ci4_msgs', 'Base')
 
-    assert ['import ci5_msgs.msg', 'import genpy'] == genpy.generator.compute_import(msg_context, 'foo', 'ci5_msgs/Base')
+    assert ['from ci5_msgs.msg._Base import Base as ci5_msgs_msg_Base', 'import genpy'] == genpy.generator.compute_import(msg_context, 'foo', 'ci5_msgs/Base')
 
 
 def test_get_registered_ex():
@@ -309,7 +309,7 @@ def test_len_serializer_generator():
     # Test Deserializers
     val = """start = end
 end += 4
-(length,) = _struct_I.unpack(str[start:end])"""
+(length,) = _struct_I.unpack(bytes_[start:end])"""
     # string serializer and array serializer are identical
     g = genpy.generator.len_serializer_generator('foo', True, False)
     assert val == '\n'.join(g)
@@ -341,13 +341,13 @@ else:
     # Test Deserializers
     val = """start = end
 end += 4
-(length,) = _struct_I.unpack(str[start:end])
+(length,) = _struct_I.unpack(bytes_[start:end])
 start = end
 end += length
 if python3:
-  var_name = str[start:end].decode('utf-8', 'rosmsg')
+  var_name = bytes_[start:end].decode('utf-8', 'rosmsg')
 else:
-  var_name = str[start:end]"""
+  var_name = bytes_[start:end]"""
     # string serializer and array serializer are identical
     g = genpy.generator.string_serializer_generator('foo', 'string', 'var_name', False)
     assert val == '\n'.join(g)

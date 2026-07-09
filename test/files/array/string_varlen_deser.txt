@@ -1,15 +1,15 @@
 start = end
 end += 4
-(length,) = _struct_I.unpack(str[start:end])
+(length,) = _struct_I.unpack(bytes_[start:end])
 data = []
 for i in range(0, length):
   start = end
   end += 4
-  (length,) = _struct_I.unpack(str[start:end])
+  (length,) = _struct_I.unpack(bytes_[start:end])
   start = end
   end += length
   if python3:
-    val0 = str[start:end].decode('utf-8', 'rosmsg')
+    val0 = bytes_[start:end].decode('utf-8', 'rosmsg')
   else:
-    val0 = str[start:end]
+    val0 = bytes_[start:end]
   data.append(val0)

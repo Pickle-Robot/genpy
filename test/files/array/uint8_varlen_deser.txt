@@ -1,6 +1,6 @@
 start = end
 end += 4
-(length,) = _struct_I.unpack(str[start:end])
+(length,) = _struct_I.unpack(bytes_[start:end])
 start = end
 end += length
-data = str[start:end]
+data = bytes_[start:end]

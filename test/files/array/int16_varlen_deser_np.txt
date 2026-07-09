@@ -1,8 +1,8 @@
 start = end
 end += 4
-(length,) = _struct_I.unpack(str[start:end])
+(length,) = _struct_I.unpack(bytes_[start:end])
 pattern = '<%sh'%length
 start = end
 s = struct.Struct(pattern)
 end += s.size
-data = numpy.frombuffer(str[start:end], dtype=numpy.int16, count=length)
+data = numpy.frombuffer(bytes_[start:end], dtype=numpy.int16, count=length)
