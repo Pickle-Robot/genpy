@@ -336,7 +336,9 @@ buff.write(struct.Struct('<I%ss'%length).pack(length, var_name))""" == val, val
 if type(b_name) in [list, tuple]:
   buff.write(struct.Struct('<I%sB'%length).pack(length, *b_name))
 else:
-  buff.write(struct.Struct('<I%ss'%length).pack(length, b_name))""" == '\n'.join(g)
+  length = memoryview(b_name).nbytes
+  buff.write(_struct_I.pack(length))
+  buff.write(b_name)""" == '\n'.join(g)
 
     # Test Deserializers
     val = """start = end

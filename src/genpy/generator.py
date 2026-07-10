@@ -476,12 +476,14 @@ def string_serializer_generator(package, type_, name, serialize):  # noqa: D401
                 yield 'if type(%s) in [list, tuple]:' % var
                 yield INDENT+pack2("'<I%sB'%length", 'length, *%s' % var)
                 yield 'else:'
-                yield INDENT+pack2("'<I%ss'%length", 'length, %s' % var)
+                yield INDENT+'length = memoryview(%s).nbytes' % var
+                yield INDENT+int32_pack('length')
+                yield INDENT+'buff.write(%s)' % var
             else:
                 yield 'if type(%s) in [list, tuple]:' % var
                 yield INDENT+pack('%sB' % array_len, '*%s' % var)
                 yield 'else:'
-                yield INDENT+pack('%ss' % array_len, var)
+                yield INDENT+'buff.write(%s)' % var
         else:
             # FIXME: for py3k, this needs to be w/ encode(), but this interferes with actual byte data
             yield 'if python3 or type(%s) == unicode:' % (var)
@@ -493,11 +495,20 @@ def string_serializer_generator(package, type_, name, serialize):  # noqa: D401
         yield 'start = end'
         if array_len is not None:
             yield 'end += %s' % array_len
-            yield '%s = bytes_[start:end]' % var
+            if base_type in ['uint8', 'char']:
+                yield 'if loaned:'
+                yield INDENT + '%s = memoryview(bytes_)[start:end]' % var
+                yield 'else:'
+                yield INDENT + '%s = bytes_[start:end]' % var
+            else:
+                yield '%s = bytes_[start:end]' % var
         else:
             yield 'end += length'
             if base_type in ['uint8', 'char']:
-                yield '%s = bytes_[start:end]' % (var)
+                yield 'if loaned:'
+                yield INDENT + '%s = memoryview(bytes_)[start:end]' % var
+                yield 'else:'
+                yield INDENT + '%s = bytes_[start:end]' % var
             else:
                 yield 'if python3:'
                 yield INDENT+"%s = bytes_[start:end].decode('utf-8', 'rosmsg')" % (var)  # If messages are python3-decode back to unicode
@@ -931,10 +942,17 @@ def msg_generator(msg_context, spec, search_path):
     for y in serialize_fn_generator(msg_context, spec):
         yield '    ' + y
     yield """
-  def deserialize(self, bytes_: bytes) -> \'%s\':
+  _SUPPORTS_LOANED_DESERIALIZE = True
+
+  def deserialize(self, bytes_: bytes, loaned: bool = False) -> \'%s\':
     \"\"\"
     unpack serialized message in str into this message instance
     :param bytes_: byte array of serialized message, ``bytes``
+    :param loaned: if True, variable- and fixed-length uint8[]/char[] fields are
+      borrowed as zero-copy ``memoryview`` slices of *bytes_* instead of being
+      copied. The returned message then aliases *bytes_*, so the caller must keep
+      it alive and unmutated for the lifetime of the message and any arrays
+      derived from those fields.
     \"\"\"""" %  spec.short_name
     for y in deserialize_fn_generator(msg_context, spec):
         yield '    ' + y
@@ -950,11 +968,13 @@ def msg_generator(msg_context, spec, search_path):
     for y in serialize_fn_generator(msg_context, spec, is_numpy=True):
         yield '    ' + y
     yield """
-  def deserialize_numpy(self, str, numpy):
+  def deserialize_numpy(self, str, numpy, loaned=False):
     \"\"\"
     unpack serialized message in str into this message instance using numpy for array types
     :param str: byte array of serialized message, ``str``
     :param numpy: numpy python module
+    :param loaned: if True, uint8[]/char[] fields are borrowed as zero-copy
+      ``memoryview`` slices of the input buffer instead of being copied.
     \"\"\""""
     for y in deserialize_fn_generator(msg_context, spec, is_numpy=True):
         yield '    ' + y

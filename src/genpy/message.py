@@ -298,13 +298,13 @@ def check_type(field_name, field_type, field_val):
         # use index to generate error if '[' not present
         base_type = field_type[:field_type.index('[')]
 
-        if type(field_val) in (bytes, str):
+        if type(field_val) in (bytes, str, bytearray, memoryview):
             if base_type not in ['char', 'uint8']:
                 raise SerializationError('field %s must be a list or tuple type. Only uint8[] can be a string' % field_name)
             else:
-                # It's a string so its already in byte format and we
-                # don't need to check the individual bytes in the
-                # string.
+                # It's already in byte/buffer format (bytes, bytearray or a
+                # memoryview, e.g. from deserialize(..., loaned=True)) so we
+                # don't need to check the individual bytes.
                 return
 
         if not type(field_val) in [list, tuple]:

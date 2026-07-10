@@ -1,3 +1,6 @@
 start = end
 end += 8
-data = bytes_[start:end]
+if loaned:
+  data = memoryview(bytes_)[start:end]
+else:
+  data = bytes_[start:end]

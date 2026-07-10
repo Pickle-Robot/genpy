@@ -155,6 +155,67 @@ def _test_ser_deser(m_instance1, m_instance2):
     assert m_instance1 == m_instance2
 
 
+def test_loaned_deserialize_reserialize():
+    # This test validates the serialize -> deserialize(loaned=True) -> re-serialize
+    # round-trip for fixed-length uint8[N] and variable-length uint8[] fields.
+    # deserialize(loaned=True) borrows both fields as zero-copy memoryview slices;
+    # re-serialize must write those buffers directly (buff.write) rather than via
+    # struct's 's' format, which rejects memoryview. It also checks that serialize
+    # accepts bytearray/memoryview inputs and that _check_types() does not reject
+    # loaned memoryview fields.
+    from genpy.dynamic import generate_dynamic
+
+    msgs = generate_dynamic('gd_msgs/ByteArrays', 'uint8[16] fixed\nuint8[] varlen\n')
+    cls = msgs['gd_msgs/ByteArrays']
+    assert getattr(cls, '_SUPPORTS_LOANED_DESERIALIZE', False)
+
+    fixed_payload = bytes(range(16))
+    varlen_payload = bytes(range(10, 20))
+    expected = cls()
+    expected.fixed = fixed_payload
+    expected.varlen = varlen_payload
+
+    src = cls()
+    src.fixed = fixed_payload
+    src.varlen = varlen_payload
+    buff = StringIO()
+    src.serialize(buff)
+    wire = buff.getvalue()
+
+    # loaned deserialize yields zero-copy memoryview slices
+    loaned = cls().deserialize(wire, loaned=True)
+    assert type(loaned.fixed) is memoryview
+    assert type(loaned.varlen) is memoryview
+    assert bytes(loaned.fixed) == fixed_payload
+    assert bytes(loaned.varlen) == varlen_payload
+    loaned._check_types()
+
+    # re-serialize loaned message (used to crash on fixed uint8[N])
+    buff2 = StringIO()
+    loaned.serialize(buff2)
+    assert buff2.getvalue() == wire
+
+    # non-loaned deserialize should still round-trip
+    copied = cls().deserialize(wire)
+    assert copied == expected
+
+    # serialize accepts buffer-like payloads directly
+    for payload in (bytearray(fixed_payload), memoryview(fixed_payload)):
+        m = cls()
+        m.fixed = payload
+        m.varlen = varlen_payload
+        buff3 = StringIO()
+        m.serialize(buff3)
+        assert buff3.getvalue() == wire
+    for payload in (bytearray(varlen_payload), memoryview(varlen_payload)):
+        m = cls()
+        m.fixed = fixed_payload
+        m.varlen = payload
+        buff4 = StringIO()
+        m.serialize(buff4)
+        assert buff4.getvalue() == wire
+
+
 def test_serialize_exception():
     import genpy
     from genpy.dynamic import generate_dynamic
