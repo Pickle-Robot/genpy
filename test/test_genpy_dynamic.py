@@ -155,6 +155,72 @@ def _test_ser_deser(m_instance1, m_instance2):
     assert m_instance1 == m_instance2
 
 
+def _build_dynamic_source(core_type, msg_cat):
+    """Build rewritten dynamic module source without importing it."""
+    from io import StringIO as TextIO
+
+    from genmsg import MsgContext
+    import genmsg.msg_loader
+    from genpy.dynamic import _generate_dynamic_specs, _gen_dyn_modify_references
+    from genpy.generator import msg_generator
+
+    msg_context = MsgContext.create_default()
+    msg_cat = msg_cat.replace('roslib/Header', 'std_msgs/Header')
+    splits = msg_cat.split('\n' + '=' * 80 + '\n')
+    core_msg = splits[0]
+    deps_msgs = splits[1:]
+    specs = {core_type: genmsg.msg_loader.load_msg_from_string(msg_context, core_msg, core_type)}
+    for dep_msg in deps_msgs:
+        dep_type, dep_spec = _generate_dynamic_specs(msg_context, specs, dep_msg)
+        specs[dep_type] = dep_spec
+    msg_context = genmsg.msg_loader.MsgContext.create_default()
+    for t, spec in specs.items():
+        msg_context.register(t, spec)
+    buff = TextIO()
+    for t, spec in specs.items():
+        for line in msg_generator(msg_context, spec, {}):
+            buff.write(_gen_dyn_modify_references(line, t, list(specs.keys())) + '\n')
+    return 'from __future__ import annotations\n' + buff.getvalue()
+
+
+def test_dynamic_generated_source_has_no_installed_imports():
+    # Regression test for bag playback: dependent types embedded in the bag
+    # must not import installed packages from PYTHONPATH.
+    from genpy.dynamic import _gen_dyn_modify_references
+
+    types = ['gd_msgs/MoveArmState', 'probot_msgs/JointState', 'std_msgs/Header']
+    import_line = 'from probot_msgs.msg._JointState import JointState as probot_msgs_msg_JointState'
+    ctor_line = '        val1 = probot_msgs_msg_JointState()'
+
+    assert _gen_dyn_modify_references(import_line, 'gd_msgs/MoveArmState', types).strip() == ''
+    rewritten_ctor = _gen_dyn_modify_references(ctor_line, 'gd_msgs/MoveArmState', types)
+    assert 'probot_msgs.msg._JointState' not in rewritten_ctor
+    assert 'probot_msgs_msg_JointState' not in rewritten_ctor
+    assert '_probot_msgs__JointState()' in rewritten_ctor
+
+    msg_cat = """Header header
+probot_msgs/JointState[] configuration
+
+================================================================================
+MSG: std_msgs/Header
+uint32 seq
+time stamp
+string frame_id
+
+================================================================================
+MSG: probot_msgs/JointState
+string name
+float64 position
+"""
+    source = _build_dynamic_source('gd_msgs/MoveArmState', msg_cat)
+    assert 'from probot_msgs.msg._' not in source
+    assert 'from std_msgs.msg._' not in source
+    assert 'probot_msgs_msg_JointState' not in source
+    assert 'std_msgs_msg_Header' not in source
+    assert '_probot_msgs__JointState' in source
+    assert '_std_msgs__Header' in source
+
+
 def test_serialize_exception():
     import genpy
     from genpy.dynamic import generate_dynamic
