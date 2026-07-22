@@ -91,14 +91,14 @@ def _gen_dyn_modify_references(py_text, current_type, types):
     for t in types:
         pkg, base_type = genmsg.package_resource_name(t)
         gen_name = _gen_dyn_name(pkg, base_type)
+        alias = '%s_msg_%s' % (pkg, base_type)
 
-        # Several things we have to rewrite:
-        # - remove any import statements
-        py_text = py_text.replace('import %s.msg' % pkg, '')
-        # - rewrite any references to class
-        if '%s.msg.%s' % (pkg, base_type) in py_text:
-            # only call expensive re.sub if the class name is in the string
-            py_text = re.sub(r'(?<!\w)%s\.msg\.%s(?!\w)' % (pkg, base_type), gen_name, py_text)
+        # Drop imports that would otherwise load the INSTALLED definition
+        py_text = py_text.replace(
+            'from %s.msg._%s import %s as %s' % (pkg, base_type, base_type, alias), '')
+        # Rewrite aliased references to the local dynamically-generated class
+        if alias in py_text:
+            py_text = re.sub(r'(?<!\w)%s(?!\w)' % re.escape(alias), gen_name, py_text)
 
     pkg, base_type = genmsg.package_resource_name(current_type)
     gen_name = _gen_dyn_name(pkg, base_type)
@@ -160,6 +160,8 @@ def generate_dynamic(core_type, msg_cat):
             line = _gen_dyn_modify_references(line, t, list(specs.keys()))
             buff.write(line + '\n')
     full_text = buff.getvalue()
+    # Defer annotation evaluation: dependent types may be defined later in this module.
+    full_text = 'from __future__ import annotations\n' + full_text
 
     # Create a temporary directory
     tmp_dir = tempfile.mkdtemp(prefix='genpy_')
