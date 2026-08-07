@@ -4,5 +4,5 @@ setup(
     packages=['genpy'],
     package_dir={'': 'src'},
     requires=['genmsg'],
-    version='0.7.17'
+    version='0.7.18'
 )
