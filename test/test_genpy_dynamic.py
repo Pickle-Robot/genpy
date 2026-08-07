@@ -155,38 +155,17 @@ def _test_ser_deser(m_instance1, m_instance2):
     assert m_instance1 == m_instance2
 
 
-def _build_dynamic_source(core_type, msg_cat):
-    """Build rewritten dynamic module source without importing it."""
-    from io import StringIO as TextIO
-
-    from genmsg import MsgContext
-    import genmsg.msg_loader
-    from genpy.dynamic import _generate_dynamic_specs, _gen_dyn_modify_references
-    from genpy.generator import msg_generator
-
-    msg_context = MsgContext.create_default()
-    msg_cat = msg_cat.replace('roslib/Header', 'std_msgs/Header')
-    splits = msg_cat.split('\n' + '=' * 80 + '\n')
-    core_msg = splits[0]
-    deps_msgs = splits[1:]
-    specs = {core_type: genmsg.msg_loader.load_msg_from_string(msg_context, core_msg, core_type)}
-    for dep_msg in deps_msgs:
-        dep_type, dep_spec = _generate_dynamic_specs(msg_context, specs, dep_msg)
-        specs[dep_type] = dep_spec
-    msg_context = genmsg.msg_loader.MsgContext.create_default()
-    for t, spec in specs.items():
-        msg_context.register(t, spec)
-    buff = TextIO()
-    for t, spec in specs.items():
-        for line in msg_generator(msg_context, spec, {}):
-            buff.write(_gen_dyn_modify_references(line, t, list(specs.keys())) + '\n')
-    return 'from __future__ import annotations\n' + buff.getvalue()
+HEADER_DEF = """uint32 seq
+time stamp
+string frame_id
+"""
 
 
 def test_dynamic_generated_source_has_no_installed_imports():
     # Regression test for bag playback: dependent types embedded in the bag
-    # must not import installed packages from PYTHONPATH.
-    from genpy.dynamic import _gen_dyn_modify_references
+    # that do not match an installed definition must not import installed
+    # packages from PYTHONPATH.
+    from genpy.dynamic import _gen_dyn_modify_references, _generate_dynamic_source
 
     types = ['gd_msgs/MoveArmState', 'probot_msgs/JointState', 'std_msgs/Header']
     import_line = 'from probot_msgs.msg._JointState import JointState as probot_msgs_msg_JointState'
@@ -198,27 +177,91 @@ def test_dynamic_generated_source_has_no_installed_imports():
     assert 'probot_msgs_msg_JointState' not in rewritten_ctor
     assert '_probot_msgs__JointState()' in rewritten_ctor
 
-    msg_cat = """Header header
+    msg_cat = """string name
 probot_msgs/JointState[] configuration
-
-================================================================================
-MSG: std_msgs/Header
-uint32 seq
-time stamp
-string frame_id
 
 ================================================================================
 MSG: probot_msgs/JointState
 string name
 float64 position
 """
-    source = _build_dynamic_source('gd_msgs/MoveArmState', msg_cat)
+    source, specs, matched = _generate_dynamic_source('gd_msgs/MoveArmState', msg_cat)
+    assert matched == {}  # neither package is installed
     assert 'from probot_msgs.msg._' not in source
-    assert 'from std_msgs.msg._' not in source
     assert 'probot_msgs_msg_JointState' not in source
-    assert 'std_msgs_msg_Header' not in source
     assert '_probot_msgs__JointState' in source
+
+
+def test_dynamic_uses_installed_class_when_md5_matches():
+    # A bag definition identical to the installed one (md5 match) must yield
+    # the installed class itself, preserving isinstance/type identity for
+    # consumers such as tf2's C++ bindings.
+    import pytest
+    std_msgs = pytest.importorskip('std_msgs.msg')
+    from genpy.dynamic import generate_dynamic
+
+    msgs = generate_dynamic('std_msgs/Header', HEADER_DEF)
+    assert msgs['std_msgs/Header'] is std_msgs.Header
+
+
+def test_dynamic_mixed_matched_and_generated_types():
+    # Unknown/drifted types are generated from the bag definition while
+    # md5-matching dependencies bind to the installed class.
+    import pytest
+    std_msgs = pytest.importorskip('std_msgs.msg')
+    from genpy.dynamic import _generate_dynamic_source, generate_dynamic
+
+    msg_cat = """Header header
+float64 position
+
+================================================================================
+MSG: std_msgs/Header
+""" + HEADER_DEF
+
+    source, specs, matched = _generate_dynamic_source('gd_msgs/JointState', msg_cat)
+    assert set(matched) == {'std_msgs/Header'}
+    assert 'from std_msgs.msg._Header import Header as std_msgs_msg_Header' in source
+    assert '_std_msgs__Header' not in source
+
+    msgs = generate_dynamic('gd_msgs/JointState', msg_cat)
+    assert msgs['std_msgs/Header'] is std_msgs.Header
+    m = msgs['gd_msgs/JointState']()
+    assert isinstance(m.header, std_msgs.Header)
+    m.position = 1.5
+    m2 = msgs['gd_msgs/JointState']()
+    _test_ser_deser(m, m2)
+    assert isinstance(m2.header, std_msgs.Header)
+
+
+def test_dynamic_drifted_header_stays_dynamic():
+    # A std_msgs/Header definition that differs from the installed one (md5
+    # mismatch) must be generated from the bag definition, not the installed
+    # class.
+    import pytest
+    std_msgs = pytest.importorskip('std_msgs.msg')
+    from genpy.dynamic import _generate_dynamic_source, generate_dynamic
+
+    drifted_header = """uint32 seq
+time stamp
+string frame_id
+string extra_field
+"""
+    msg_cat = """Header header
+float64 position
+
+================================================================================
+MSG: std_msgs/Header
+""" + drifted_header
+
+    source, specs, matched = _generate_dynamic_source('gd_msgs/JointState', msg_cat)
+    assert matched == {}
     assert '_std_msgs__Header' in source
+
+    msgs = generate_dynamic('gd_msgs/JointState', msg_cat)
+    assert msgs['std_msgs/Header'] is not std_msgs.Header
+    m = msgs['gd_msgs/JointState']()
+    assert not isinstance(m.header, std_msgs.Header)
+    assert hasattr(m.header, 'extra_field')
 
 
 def test_serialize_exception():
