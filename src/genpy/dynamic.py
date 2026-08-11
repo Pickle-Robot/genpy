@@ -40,6 +40,7 @@ except ImportError:
     from io import StringIO  # Python 3.x
 
 import atexit
+import importlib
 import os
 import re
 import shutil
@@ -47,6 +48,7 @@ import sys
 import tempfile
 
 import genmsg
+import genmsg.gentools
 import genmsg.msg_loader
 from genmsg import MsgContext, MsgGenerationException
 
@@ -81,24 +83,29 @@ def _gen_dyn_name(pkg, base_type):
     return '_%s__%s' % (pkg, base_type)
 
 
-def _gen_dyn_modify_references(py_text, current_type, types):
+def _gen_dyn_modify_references(py_text, current_type, types, matched=()):
     """
     Modify the generated code to rewrite names such that the code can safely co-exist with messages of the same name.
 
     :param py_text: genmsg_py-generated Python source code, ``str``
+    :param matched: types whose installed class is md5-identical to the bag
+      definition; their aliased imports are kept so references bind to the
+      installed class, ``collection of str``
     :returns: updated text, ``str``
     """
     for t in types:
+        if t in matched:
+            continue
         pkg, base_type = genmsg.package_resource_name(t)
         gen_name = _gen_dyn_name(pkg, base_type)
+        alias = '%s_msg_%s' % (pkg, base_type)
 
-        # Several things we have to rewrite:
-        # - remove any import statements
-        py_text = py_text.replace('import %s.msg' % pkg, '')
-        # - rewrite any references to class
-        if '%s.msg.%s' % (pkg, base_type) in py_text:
-            # only call expensive re.sub if the class name is in the string
-            py_text = re.sub(r'(?<!\w)%s\.msg\.%s(?!\w)' % (pkg, base_type), gen_name, py_text)
+        # Drop imports that would otherwise load the INSTALLED definition
+        py_text = py_text.replace(
+            'from %s.msg._%s import %s as %s' % (pkg, base_type, base_type, alias), '')
+        # Rewrite aliased references to the local dynamically-generated class
+        if alias in py_text:
+            py_text = re.sub(r'(?<!\w)%s(?!\w)' % re.escape(alias), gen_name, py_text)
 
     pkg, base_type = genmsg.package_resource_name(current_type)
     gen_name = _gen_dyn_name(pkg, base_type)
@@ -106,22 +113,53 @@ def _gen_dyn_modify_references(py_text, current_type, types):
     py_text = py_text.replace('class %s(' % base_type, 'class %s(' % gen_name)
     # - super() references for __init__
     py_text = py_text.replace('super(%s,' % base_type, 'super(%s,' % gen_name)
-    # std_msgs/Header also has to be rewritten to be a local reference
-    py_text = py_text.replace('std_msgs.msg._Header.Header', _gen_dyn_name('std_msgs', 'Header'))
+    # std_msgs/Header constructor references use a dotted path the aliased
+    # import does not bind, so rewrite them either to the kept alias (md5
+    # match) or to the local dynamically-generated class
+    if 'std_msgs/Header' in matched:
+        py_text = py_text.replace('std_msgs.msg._Header.Header', 'std_msgs_msg_Header')
+    else:
+        py_text = py_text.replace('std_msgs.msg._Header.Header', _gen_dyn_name('std_msgs', 'Header'))
     return py_text
 
 
-def generate_dynamic(core_type, msg_cat):
+def _installed_class_if_md5_match(msg_context, msg_type, spec):
     """
-    Dynamically generate message classes from msg_cat .msg text gendeps dump.
+    Return the installed message class for msg_type if its md5 matches spec.
 
-    This method modifies sys.path to include a temp file directory.
-    :param core_type str: top-level ROS message type of concatenated .msg text
-    :param msg_cat str: concatenation of full message text (output of gendeps --cat)
+    A matching md5 proves the installed definition (including all nested
+    types) is byte-identical to the definition embedded in the bag, so the
+    installed class can be used directly. This preserves class identity with
+    the rest of the process (isinstance checks, C++ bindings such as tf2).
+
+    :returns: installed class, or None if not importable or definitions differ
+    """
+    pkg, base_type = genmsg.package_resource_name(msg_type)
+    try:
+        mod = importlib.import_module('%s.msg._%s' % (pkg, base_type))
+        cls = getattr(mod, base_type)
+    except Exception:
+        return None
+    try:
+        if getattr(cls, '_md5sum', None) == genmsg.gentools.compute_md5(msg_context, spec):
+            return cls
+    except Exception:
+        return None
+    return None
+
+
+def _generate_dynamic_source(core_type, msg_cat):
+    """
+    Build the rewritten dynamic module source for msg_cat .msg text.
+
+    Types whose installed class is md5-identical to the bag definition are not
+    generated; references to them bind to the installed class instead.
+
+    :returns: module source, specs by type, installed classes by matched type,
+      ``(str, dict, dict)``
     :raises: MsgGenerationException If dep_msg is improperly formatted
     """
     msg_context = MsgContext.create_default()
-    core_pkg, core_base_type = genmsg.package_resource_name(core_type)
 
     # REP 100: pretty gross hack to deal with the fact that we moved
     # Header. Header is 'special' because it can be used w/o a package
@@ -150,16 +188,43 @@ def generate_dynamic(core_type, msg_cat):
     for t, spec in specs.items():
         msg_context.register(t, spec)
 
+    # installed classes that provably match the bag definition are used as-is
+    matched = {}
+    for t, spec in specs.items():
+        cls = _installed_class_if_md5_match(msg_context, t, spec)
+        if cls is not None:
+            matched[t] = cls
+
     # process actual MsgSpecs: we accumulate them into a single file,
     # rewriting the generated text as needed
     buff = StringIO()
     for t, spec in specs.items():
-        pkg, s_type = genmsg.package_resource_name(t)
+        if t in matched:
+            continue
         # dynamically generate python message code
         for line in msg_generator(msg_context, spec, search_path):
-            line = _gen_dyn_modify_references(line, t, list(specs.keys()))
+            line = _gen_dyn_modify_references(line, t, list(specs.keys()), matched)
             buff.write(line + '\n')
     full_text = buff.getvalue()
+    # Defer annotation evaluation: dependent types may be defined later in this module.
+    full_text = 'from __future__ import annotations\n' + full_text
+    return full_text, specs, matched
+
+
+def generate_dynamic(core_type, msg_cat):
+    """
+    Dynamically generate message classes from msg_cat .msg text gendeps dump.
+
+    This method modifies sys.path to include a temp file directory.
+    :param core_type str: top-level ROS message type of concatenated .msg text
+    :param msg_cat str: concatenation of full message text (output of gendeps --cat)
+    :raises: MsgGenerationException If dep_msg is improperly formatted
+    """
+    full_text, specs, matched = _generate_dynamic_source(core_type, msg_cat)
+
+    # every definition matches an installed class: nothing to generate
+    if len(matched) == len(specs):
+        return dict(matched)
 
     # Create a temporary directory
     tmp_dir = tempfile.mkdtemp(prefix='genpy_')
@@ -189,6 +254,11 @@ def generate_dynamic(core_type, msg_cat):
     # finally, retrieve the message classes from the dynamic module
     messages = {}
     for t in specs.keys():
+        if t in matched:
+            # installed class is md5-identical to the bag definition; use it
+            # directly so class identity is preserved (isinstance, tf2, ...)
+            messages[t] = matched[t]
+            continue
         pkg, s_type = genmsg.package_resource_name(t)
         try:
             messages[t] = getattr(mod, _gen_dyn_name(pkg, s_type))
