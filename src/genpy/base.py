@@ -61,6 +61,7 @@ PY_TYPE_STRINGS = {
     'int8': 'int',
     'uint8': 'bytes',
     'byte': 'bytes',
+    'int16': 'int',
     'uint16': 'int',
     'int32': 'int',
     'uint32': 'int', 
@@ -72,7 +73,7 @@ PY_TYPE_STRINGS = {
     'bool': 'bool',
     'char': 'bytes',
     'time': 'genpy.Time', # See: https://github.com/Pickle-Robot/genmsg/blob/b3c24ea4a75ac494e4f94bf88e8838c71f4280a5/src/genmsg/msgs.py#L326
-    'duration': 'genpy.Time' 
+    'duration': 'genpy.Duration'
 }
 
 
