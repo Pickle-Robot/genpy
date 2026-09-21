@@ -19,8 +19,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # genmsg is Pickle's fork and is not on PyPI, so it is installed from git.
       - name: Install package and test deps
-        run: pip install -e . pytest
+        run: pip install "genmsg @ git+https://github.com/Pickle-Robot/genmsg" -e . pytest packaging numpy
 
       - name: Run tests
         run: pytest test/

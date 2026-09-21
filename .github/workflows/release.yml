@@ -1,20 +1,107 @@
-name: Release
+---
+name: genpy release
 
+# Mirrors punq's (and nvblox's) release workflow: every run builds the wheel and
+# keeps it as a workflow artifact; publishing to Artifact Registry happens only on
+# a manual run with the deploy checkbox ticked. Running on pull requests too means
+# packaging and versioning breakage is caught before merge, and gives reviewers a
+# downloadable wheel, without any risk of publishing (see the publish job's `if`).
 on:
-  push:
-    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        type: boolean
+        description: "Publish the wheel to the python-internal Artifact Registry"
+        required: false
+        default: false
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
-  publish:
-    name: Publish Wheel to Artifact Registry
+  build_wheel:
+    name: Build wheel
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      # GENPY_PICKLE_RELEASE is the monotonic counter in the wheel version's local
+      # segment (+pickle.<N>). github.run_number only ever increases for this
+      # workflow, so each deploy publishes one distinct, correctly ordered version
+      # instead of failing on a duplicate (or needing a manual bump).
+      # GENPY_PICKLE_BRANCH is the branch the run was dispatched from; anything other
+      # than main is appended as a trailing local segment so developers can publish a
+      # branch wheel for testing without it being mistaken for a mainline release.
+      # See _pickle_version.py for the composition rules.
+      - name: Compute wheel version
+        id: version
+        env:
+          GENPY_PICKLE_RELEASE: ${{ github.run_number }}
+          GENPY_PICKLE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          version="$(python3 _pickle_version.py)"
+          echo "value=${version}" >> "$GITHUB_OUTPUT"
+          echo "Wheel version: ${version}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build wheel
+        env:
+          GENPY_PICKLE_RELEASE: ${{ github.run_number }}
+          GENPY_PICKLE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: uv build --wheel
+
+      # Install the wheel into a clean venv and check the version the package reports
+      # at runtime is the one we meant to build, so a versioning regression fails here
+      # rather than after publishing. genmsg is Pickle's fork and is not on PyPI, so
+      # it is installed straight from its (public) GitHub repo.
+      - name: Smoke-test wheel
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          ls -la dist/
+          uv venv .smoke
+          uv pip install --python .smoke/bin/python \
+            "genmsg @ git+https://github.com/Pickle-Robot/genmsg" dist/*.whl
+          installed="$(.smoke/bin/python -c 'import genpy; print(genpy.__version__)')"
+          echo "installed genpy ${installed}"
+          test "${installed}" = "${EXPECTED_VERSION}"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: genpy-wheel
+          path: dist/*.whl
+          retention-days: 7
+
+  # Publishing is a separate job so it only ever runs from a wheel that built and
+  # passed the smoke test, and so a publish that dies halfway can be retried on its
+  # own (gh run rerun --failed) against the very same artifact.
+  publish:
+    name: Publish to Artifact Registry
+    needs: build_wheel
+    # Deploy is only possible on a manual run with the checkbox explicitly ticked; any
+    # other trigger (or an unticked default) never reaches this job.
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # a mainline publish creates a release tag at the built SHA
+      id-token: write
+    steps:
+      - name: Download wheel artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: genpy-wheel
+          path: dist
+
+      - name: List wheels to publish
+        run: ls -la dist/
 
       - name: Auth for Artifact Registry Access
         id: auth
@@ -25,37 +112,32 @@ jobs:
           service_account: ${{ vars.ARTIFACT_WRITER_SA }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
 
-      - name: Check if version already published
-        id: version-check
-        env:
-          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-        run: |
-          VERSION=$(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
-          PKG_NAME=$(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['name'])")
-          PKG_SLUG="${PKG_NAME//_/-}"
-          echo "Checking if ${PKG_NAME}==${VERSION} is already published..."
-          RESPONSE=$(curl -sf \
-            -u "oauth2accesstoken:${ACCESS_TOKEN}" \
-            "https://us-central1-python.pkg.dev/pickle-devops-prod/python-internal/simple/${PKG_SLUG}/" \
-            2>/dev/null || echo "")
-          if echo "$RESPONSE" | grep -qi "${PKG_SLUG}-${VERSION}"; then
-            echo "Version ${PKG_NAME}==${VERSION} already published, skipping."
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version ${PKG_NAME}==${VERSION} not yet published, will publish."
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build wheel
-        if: steps.version-check.outputs.skip != 'true'
-        run: uv build --wheel
-
+      # UV_PUBLISH_CHECK_URL makes uv consult the index first and skip the wheel if it
+      # is already there with an identical hash, so a re-run of just this job after a
+      # failed upload does not trip Artifact Registry's duplicate-filename rejection.
       - name: Publish to Artifact Registry
-        if: steps.version-check.outputs.skip != 'true'
         env:
           UV_PUBLISH_URL: https://us-central1-python.pkg.dev/pickle-devops-prod/python-internal/
+          UV_PUBLISH_CHECK_URL: https://us-central1-python.pkg.dev/pickle-devops-prod/python-internal/simple/
           UV_PUBLISH_USERNAME: oauth2accesstoken
           UV_PUBLISH_PASSWORD: ${{ steps.auth.outputs.access_token }}
-        run: uv publish
+        run: uv publish dist/*.whl
+
+      # Ties every mainline wheel in the registry back to the exact commit it was built
+      # from. Branch wheels are for testing and already name their branch in the
+      # version, so they get no release.
+      - name: Create release for the published wheel
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build_wheel.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" dist/*.whl \
+            --target "${GITHUB_SHA}" \
+            --title "v${VERSION}" \
+            --notes "Published genpy ${VERSION} to Artifact Registry (python-internal) from run ${GITHUB_RUN_ID}."

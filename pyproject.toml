@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "genpy"
-version = "0.6.16"
+dynamic = ["version"]
 description = "Python ROS message and service generators"
 license = "BSD-3-Clause"
 authors = [
@@ -20,7 +20,17 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.8"
-dependencies = ["genmsg"]
+# genmsg is Pickle's fork (https://github.com/Pickle-Robot/genmsg), not on PyPI;
+# install it from the python-internal registry or from git. pyyaml is imported by
+# genpy.message at package import time (package.xml lists python3-yaml).
+dependencies = ["genmsg", "pyyaml"]
+
+# The wheel version is composed at build time from the upstream version, a
+# monotonic release counter and (off main) the branch name; see _pickle_version.py.
+[tool.hatch.version]
+source = "code"
+path = "_pickle_version.py"
+expression = "get_version()"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/genpy"]

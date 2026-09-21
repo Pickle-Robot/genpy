@@ -1,5 +1,3 @@
-__version__ = "0.6.16"
-
 # Software License Agreement (BSD License)
 #
 # Copyright (c) 2011, Willow Garage, Inc.
@@ -32,8 +30,20 @@ __version__ = "0.6.16"
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from importlib.metadata import PackageNotFoundError, version
+
 from . rostime import Time, Duration, TVal
 from . message import Message, SerializationError, DeserializationError, MessageException, struct_I
+
+# The version is composed at build time (see _pickle_version.py) as upstream's
+# 0.6.16 plus a PEP 440 local segment, +pickle.<release>[.<branch>], and baked
+# into the wheel's metadata. Read it back from there so an installed genpy
+# reports exactly the version of the wheel it came from.
+try:
+    __version__ = version(__name__)
+except PackageNotFoundError:
+    # package is not installed (e.g. running from a source checkout)
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     'Time', 'Duration', 'TVal',
